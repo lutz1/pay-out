@@ -1,40 +1,59 @@
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Login from "./pages/login";
 import AdminDashboard from "./pages/admin/adminDashboard";
 import AdminManageUser from "./pages/admin/adminManageUser";
-// import EncoderDashboard from "./pages/encoder/encoderDashboard"; // Uncomment when ready
+import AdminManageField from "./pages/admin/adminManageField"; // ✅ new
+import EncoderDashboard from "./pages/encoder/encoderDashboard";
+import ProtectedRoute from "./components/ProtectedRoute";
+import Unauthorized from "./pages/Unauthorized";
 
 function App() {
-  // Get user role from localStorage (set after login)
-  const role = localStorage.getItem("userRole");
-
   return (
     <Router>
       <Routes>
-        {/* Login Page */}
+        {/* 🌐 Public Routes */}
         <Route path="/login" element={<Login />} />
+        <Route path="/unauthorized" element={<Unauthorized />} />
 
-        {/* Admin Dashboard */}
+        {/* 🛠 Admin Routes */}
         <Route
           path="/admin"
-          element={role === "admin" ? <AdminDashboard /> : <Navigate to="/login" />}
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
         />
         <Route
           path="/admin/users"
-          element={role === "admin" ? <AdminManageUser /> : <Navigate to="/login" />}
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminManageUser />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/fields"
+          element={
+            <ProtectedRoute allowedRoles={["admin"]}>
+              <AdminManageField />
+            </ProtectedRoute>
+          }
         />
 
-        {/* Encoder Dashboard (to be implemented) */}
-        {/*
+        {/* 🧾 Encoder Routes */}
         <Route
           path="/encoder"
-          element={role === "encoder" ? <EncoderDashboard /> : <Navigate to="/login" />}
+          element={
+            <ProtectedRoute allowedRoles={["encoder"]}>
+              <EncoderDashboard />
+            </ProtectedRoute>
+          }
         />
-        */}
 
-        {/* Default route redirects to login */}
-        <Route path="*" element={<Navigate to="/login" />} />
+        {/* 🚪 Fallback */}
+        <Route path="*" element={<Login />} />
       </Routes>
     </Router>
   );

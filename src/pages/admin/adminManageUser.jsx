@@ -14,7 +14,7 @@ import {
   Toolbar,
   Grid,
 } from "@mui/material";
-import { db, auth } from "../../firebase";
+import { db, secondaryAuth } from "../../firebase"; // 👈 use secondaryAuth here
 import { collection, doc, setDoc, getDocs } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import Sidebar from "../../components/Sidebar";
@@ -22,52 +22,26 @@ import Topbar from "../../components/Topbar";
 
 export default function AdminManageUser() {
   const [users, setUsers] = useState([]);
-  const [form, setForm] = useState({ username: "", email: "", role: "encoder" });
-  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
+  const [form, setForm] = useState({
+    username: "",
+    email: "",
+    contactNumber: "",
+    role: "encoder",
+  });
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: "",
+    severity: "success",
+  });
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
 
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
   const handleCollapseToggle = () => setCollapsed(!collapsed);
 
-  // Fetch only encoder users
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const usersRef = collection(db, "users");
-        const snapshot = await getDocs(usersRef);
-        const usersList = snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((user) => user.role === "encoder");
-        setUsers(usersList);
-      } catch (error) {
-        setSnackbar({ open: true, message: "Error fetching users", severity: "error" });
-      }
-    };
-    fetchUsers();
-  }, []);
-
-  // Add new encoder/admin user
-  const handleAddUser = async () => {
-    if (!form.username || !form.email || !form.role) {
-      setSnackbar({ open: true, message: "Please fill in all fields", severity: "warning" });
-      return;
-    }
-
+  // ✅ Fetch only encoder users
+  const fetchUsers = async () => {
     try {
-      const defaultPassword = "defaultPassword123";
-      const userCredential = await createUserWithEmailAndPassword(auth, form.email, defaultPassword);
-      const uid = userCredential.user.uid;
-
-      await setDoc(doc(db, "users", uid), {
-        username: form.username,
-        email: form.email,
-        role: form.role,
-      });
-
-      setSnackbar({ open: true, message: `User ${form.username} added successfully!`, severity: "success" });
-      setForm({ username: "", email: "", role: "encoder" });
-
       const usersRef = collection(db, "users");
       const snapshot = await getDocs(usersRef);
       const usersList = snapshot.docs
@@ -75,7 +49,70 @@ export default function AdminManageUser() {
         .filter((user) => user.role === "encoder");
       setUsers(usersList);
     } catch (error) {
-      setSnackbar({ open: true, message: error.message, severity: "error" });
+      console.error("Error fetching users:", error);
+      setSnackbar({
+        open: true,
+        message: "Error fetching users. Check Firestore permissions.",
+        severity: "error",
+      });
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  // ✅ Add new encoder/admin user using SECONDARY AUTH
+  const handleAddUser = async () => {
+    if (!form.username || !form.email || !form.contactNumber || !form.role) {
+      setSnackbar({
+        open: true,
+        message: "Please fill in all fields",
+        severity: "warning",
+      });
+      return;
+    }
+
+    try {
+      const defaultPassword = "defaultPassword123"; // You might want to generate a random password or prompt admin to set one
+
+      // Create user using secondary auth (admin stays logged in)
+      const userCredential = await createUserWithEmailAndPassword(
+        secondaryAuth,
+        form.email,
+        defaultPassword
+      );
+
+      const uid = userCredential.user.uid;
+
+      await setDoc(doc(db, "users", uid), {
+        username: form.username,
+        email: form.email,
+        contactNumber: form.contactNumber,
+        role: form.role,
+      });
+
+      setSnackbar({
+        open: true,
+        message: `User ${form.username} added successfully!`,
+        severity: "success",
+      });
+
+      setForm({
+        username: "",
+        email: "",
+        contactNumber: "",
+        role: "encoder",
+      });
+
+      await fetchUsers(); // Refresh list
+    } catch (error) {
+      console.error("Error adding user:", error);
+      setSnackbar({
+        open: true,
+        message: error.message,
+        severity: "error",
+      });
     }
   };
 
@@ -106,7 +143,7 @@ export default function AdminManageUser() {
           backgroundColor: "#fafafa",
         }}
       >
-        {/* Inner Content Wrapper (Centers content) */}
+        {/* Inner Content Wrapper */}
         <Box
           sx={{
             width: "100%",
@@ -152,6 +189,14 @@ export default function AdminManageUser() {
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
+              <TextField
+                label="Contact Number"
+                fullWidth
+                value={form.contactNumber}
+                onChange={(e) =>
+                  setForm({ ...form, contactNumber: e.target.value })
+                }
+              />
               <FormControl fullWidth>
                 <InputLabel>Role</InputLabel>
                 <Select
@@ -190,6 +235,9 @@ export default function AdminManageUser() {
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         {user.email}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        📞 {user.contactNumber || "N/A"}
                       </Typography>
                       <Typography
                         variant="caption"

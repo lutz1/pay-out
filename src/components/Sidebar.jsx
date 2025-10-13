@@ -35,7 +35,7 @@ export default function Sidebar({
   const menuItems = [
     { text: "Dashboard", path: "/admin", icon: <DashboardIcon /> },
     { text: "Manage Users", path: "/admin/users", icon: <PeopleIcon /> },
-    { text: "Manage Fields", path: "/admin/manage-fields", icon: <BuildIcon /> },
+    { text: "Manage Fields", path: "/admin/fields", icon: <BuildIcon /> }, // ✅ fixed path
     { text: "Master List", path: "/admin/master-list", icon: <ListAltIcon /> },
     { text: "Generate Report", path: "/admin/reports", icon: <AssessmentIcon /> },
   ];
@@ -70,11 +70,7 @@ export default function Sidebar({
       <List>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ display: "block" }}>
-            <Tooltip
-              title={collapsed ? item.text : ""}
-              placement="right"
-              arrow
-            >
+            <Tooltip title={collapsed ? item.text : ""} placement="right" arrow>
               <ListItemButton
                 onClick={() => navigate(item.path)}
                 sx={{

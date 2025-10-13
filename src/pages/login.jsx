@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Button,
@@ -11,38 +11,62 @@ import {
   InputAdornment,
   IconButton,
   Snackbar,
-  Alert
+  Alert,
 } from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 import { auth, db } from "../firebase";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 
 export default function Login() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: "", severity: "success" });
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: "",
+    severity: "success",
+  });
 
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
+  // ✅ If user is already logged in, redirect to proper dashboard
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const role = localStorage.getItem("userRole");
+      if (user && role) {
+        if (role === "admin") navigate("/admin", { replace: true });
+        else if (role === "encoder") navigate("/encoder", { replace: true });
+      }
+    });
+    return unsubscribe;
+  }, [navigate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!form.email || !form.password) {
-      setSnackbar({ open: true, message: "Please fill in all fields.", severity: "warning" });
+      setSnackbar({
+        open: true,
+        message: "Please fill in all fields.",
+        severity: "warning",
+      });
       return;
     }
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, form.email, form.password);
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        form.email,
+        form.password
+      );
       const user = userCredential.user;
 
-      // Get user role from Firestore
+      // ✅ Fetch role from Firestore
       const docRef = doc(db, "users", user.uid);
       const docSnap = await getDoc(docRef);
 
@@ -51,21 +75,30 @@ export default function Login() {
         localStorage.setItem("userRole", role);
         localStorage.setItem("userEmail", user.email);
 
-        // Show success snackbar
-        setSnackbar({ open: true, message: `Successfully logged in as ${role}`, severity: "success" });
+        setSnackbar({
+          open: true,
+          message: `Successfully logged in as ${role}`,
+          severity: "success",
+        });
 
-        // Redirect after small delay
+        // Small delay for snackbar display
         setTimeout(() => {
-          if (role === "admin") navigate("/admin");
-          else if (role === "encoder") navigate("/encoder");
+          if (role === "admin") navigate("/admin", { replace: true });
+          else if (role === "encoder") navigate("/encoder", { replace: true });
         }, 500);
-
       } else {
-        setSnackbar({ open: true, message: "User role not found in Firestore!", severity: "error" });
+        setSnackbar({
+          open: true,
+          message: "User role not found in Firestore!",
+          severity: "error",
+        });
       }
     } catch (error) {
-      // Show Firebase auth errors in snackbar
-      setSnackbar({ open: true, message: error.message, severity: "error" });
+      setSnackbar({
+        open: true,
+        message: error.message,
+        severity: "error",
+      });
     }
   };
 
@@ -77,13 +110,24 @@ export default function Login() {
         justifyContent: "center",
         alignItems: "center",
         background: "linear-gradient(135deg, #00c6ff 0%, #0072ff 100%)",
-        padding: 2
+        padding: 2,
       }}
     >
-      <Paper sx={{ width: isMobile ? "100%" : 400, padding: 4, borderRadius: 3, textAlign: "center" }}>
+      <Paper
+        sx={{
+          width: isMobile ? "100%" : 400,
+          padding: 4,
+          borderRadius: 3,
+          textAlign: "center",
+        }}
+      >
         <Box sx={{ mb: 2 }}>
-          <Typography variant="h5" fontWeight="bold" color="primary">Payout System</Typography>
-          <Typography variant="body2" color="text.secondary">Secure Login Portal</Typography>
+          <Typography variant="h5" fontWeight="bold" color="primary">
+            Payout System
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Secure Login Portal
+          </Typography>
         </Box>
 
         <Box component="form" onSubmit={handleSubmit}>
@@ -102,7 +146,10 @@ export default function Login() {
               onChange={(e) => setForm({ ...form, password: e.target.value })}
               endAdornment={
                 <InputAdornment position="end">
-                  <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
+                  <IconButton
+                    onClick={() => setShowPassword(!showPassword)}
+                    edge="end"
+                  >
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
                 </InputAdornment>
@@ -110,7 +157,14 @@ export default function Login() {
               label="Password"
             />
           </FormControl>
-          <Button fullWidth type="submit" variant="contained" sx={{ mt: 3, py: 1.2 }}>Login</Button>
+          <Button
+            fullWidth
+            type="submit"
+            variant="contained"
+            sx={{ mt: 3, py: 1.2 }}
+          >
+            Login
+          </Button>
         </Box>
       </Paper>
 
