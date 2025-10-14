@@ -5,6 +5,7 @@ import AdminDashboard from "./pages/admin/adminDashboard";
 import AdminManageUser from "./pages/admin/adminManageUser";
 import AdminManageField from "./pages/admin/adminManageField"; // ✅ new
 import EncoderDashboard from "./pages/encoder/encoderDashboard";
+import EncoderMasterList from "./pages/encoder/encoderMasterList"; // ✅ added
 import ProtectedRoute from "./components/ProtectedRoute";
 import Unauthorized from "./pages/Unauthorized";
 
@@ -48,6 +49,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={["encoder"]}>
               <EncoderDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/encoder/masterlist"
+          element={
+            <ProtectedRoute allowedRoles={["encoder"]}>
+              <EncoderMasterList />
             </ProtectedRoute>
           }
         />

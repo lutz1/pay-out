@@ -33,20 +33,19 @@ export default function Sidebar({
 }) {
   const navigate = useNavigate();
 
-  // ✅ Dynamic menu items based on role
-  const menuItems = role === "admin"
-    ? [
-        { text: "Dashboard", path: "/admin", icon: <DashboardIcon /> },
-        { text: "Manage Users", path: "/admin/users", icon: <PeopleIcon /> },
-        { text: "Manage Fields", path: "/admin/fields", icon: <BuildIcon /> },
-        { text: "Master List", path: "/admin/master-list", icon: <ListAltIcon /> },
-        { text: "Generate Report", path: "/admin/reports", icon: <AssessmentIcon /> },
-      ]
-    : [
-        { text: "Dashboard", path: "/encoder", icon: <DashboardIcon /> },
-        { text: "Master List", path: "/encoder/master-list", icon: <ListAltIcon /> },
-        { text: "Reports", path: "/encoder/reports", icon: <AssessmentIcon /> },
-      ];
+  // ✅ Menu items based on role
+  const menuItems =
+    role === "admin"
+      ? [
+          { text: "Dashboard", path: "/admin", icon: <DashboardIcon /> },
+          { text: "Manage Users", path: "/admin/users", icon: <PeopleIcon /> },
+          { text: "Manage Fields", path: "/admin/fields", icon: <BuildIcon /> },
+          { text: "Generate Report", path: "/admin/reports", icon: <AssessmentIcon /> },
+        ]
+      : [
+          { text: "Dashboard", path: "/encoder", icon: <DashboardIcon /> },
+          { text: "Master List", path: "/encoder/masterlist", icon: <ListAltIcon /> },
+        ];
 
   const drawerContent = (
     <>
@@ -67,12 +66,17 @@ export default function Sidebar({
         )}
         <IconButton
           onClick={handleCollapseToggle}
-          sx={{ transition: "all 0.3s", ...(collapsed && { mx: "auto" }) }}
+          sx={{
+            transition: "all 0.3s",
+            ...(collapsed && { mx: "auto" }),
+          }}
         >
           {collapsed ? <MenuIcon /> : <ChevronLeftIcon />}
         </IconButton>
       </Toolbar>
+
       <Divider />
+
       <List>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ display: "block" }}>
@@ -98,7 +102,10 @@ export default function Sidebar({
                 </ListItemIcon>
                 <ListItemText
                   primary={item.text}
-                  sx={{ opacity: collapsed ? 0 : 1, transition: "opacity 0.3s" }}
+                  sx={{
+                    opacity: collapsed ? 0 : 1,
+                    transition: "opacity 0.3s",
+                  }}
                 />
               </ListItemButton>
             </Tooltip>
@@ -110,7 +117,7 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Permanent drawer */}
+      {/* Permanent Drawer (Desktop) */}
       <Drawer
         variant="permanent"
         sx={{
@@ -127,7 +134,7 @@ export default function Sidebar({
         {drawerContent}
       </Drawer>
 
-      {/* Temporary drawer (mobile) */}
+      {/* Temporary Drawer (Mobile) */}
       <Drawer
         variant="temporary"
         open={mobileOpen}
