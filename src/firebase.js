@@ -1,26 +1,26 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-import { getStorage } from "firebase/storage"; // ✅ Import Storage
+import { getStorage } from "firebase/storage";
 
-// Firebase configuration
+// Firebase configuration (now using environment variables)
 const firebaseConfig = {
-  apiKey: "AIzaSyC-LcD9U_r_6zVUVfq8LTlXkHIL2tg3Qq0",
-  authDomain: "payout-system-78c2a.firebaseapp.com",
-  projectId: "payout-system-78c2a",
-  storageBucket: "payout-system-78c2a.firebasestorage.app", // ✅ Corrected Storage Bucket
-  messagingSenderId: "541411708523",
-  appId: "1:541411708523:web:b8d59fa3fe632f619dab2e"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
 };
 
-// Initialize primary app
+// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
-const storage = getStorage(app); // ✅ Initialize Storage
+const storage = getStorage(app);
 
-// Initialize secondary app for admin-only operations (user creation, etc.)
+// Secondary app (optional)
 const secondaryApp = initializeApp(firebaseConfig, "Secondary");
 const secondaryAuth = getAuth(secondaryApp);
 
-export { db, auth, secondaryAuth, storage }; // ✅ Export everything
+export { db, auth, secondaryAuth, storage };
