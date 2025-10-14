@@ -97,6 +97,23 @@ export default function AdminDashboard() {
           lastName: row["LAST NAME"] || row["Last Name"] || "",
           firstName: row["FIRST NAME"] || row["First Name"] || "",
           middleName: row["MIDDLE NAME"] || row["Middle Name"] || "",
+          birthDay: row["BIRTH DAY"] || row["Birth Day"] || "",
+          birthMonth: row["BIRTH MONTH"] || row["Birth Month"] || "",
+          birthYear: row["BIRTH YEAR"] || row["Birth Year"] || "",
+          address: row["ADDRESS"] || row["Address"] || "",
+          category: row["CATEGORY"] || row["Category"] || "",
+          mtopAssb: row["MTOP/ASSB"] || row["Mtop/Assb"] || "",
+          sex: row["SEX"] || row["Sex"] || "",
+          occupation: row["OCCUPATION"] || row["Occupation"] || "",
+          monthlySalary: row["MONTHLY SALARY"] || row["Monthly Salary"] || "",
+          barangay: row["BARANGAY"] || row["Barangay"] || "",
+          cityMunicipality:
+            row["CITY/MUNICIPALITY"] || row["City/Municipality"] || "",
+          province: row["PROVINCE"] || row["Province"] || "",
+          typeOfAssistance:
+            row["TYPE OF ASSISTANCE"] || row["Type of Assistance"] || "",
+          amount: row["AMOUNT"] || row["Amount"] || "",
+          charging: row["CHARGING"] || row["Charging"] || "",
         }));
         setExcelData(formatted);
       } catch (err) {
@@ -184,25 +201,48 @@ export default function AdminDashboard() {
   const totalRegistered = registeredWithDetails.length;
   const totalNotRegistered = excelData.length - totalRegistered;
 
-  // 🔹 Export to Excel
-  const handleExportExcel = () => {
-    if (registeredWithDetails.length === 0) return;
+  // 🔹 Export to Excel (Registered + Not Registered Overview)
+const handleExportExcel = () => {
+  if (excelData.length === 0) return;
 
-    const exportData = registeredWithDetails.map((item) => ({
-      "No.": item.no,
-      "CONTROL NUMBER": item.controlNumber,
-      "LAST NAME": item.lastName,
-      "FIRST NAME": item.firstName,
-      "MIDDLE NAME": item.middleName,
-      "ENCODER NAME": item.encoderName,
-      "REGISTERED AT": item.registeredAt,
-    }));
+  // Build a lookup of registered control numbers
+  const registeredSet = new Set(
+    registeredWithDetails.map((r) => r.controlNumber)
+  );
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Registered");
-    XLSX.writeFile(wb, `Payout_${selectedPayout}_Registered_Report.xlsx`);
-  };
+  // Combine both registered and not registered
+  const combinedData = excelData.map((row, index) => ({
+    "No.": index + 1,
+    "CONTROL NUMBER": row.controlNumber || "",
+    "LAST NAME": row.lastName || "",
+    "FIRST NAME": row.firstName || "",
+    "MIDDLE NAME": row.middleName || "",
+    "BIRTH DAY": row.birthDay || "",
+    "BIRTH MONTH": row.birthMonth || "",
+    "BIRTH YEAR": row.birthYear || "",
+    "ADDRESS": row.address || "", 
+    "CATEGORY": row.category || "",
+    "MTOP/ASSB": row.mtopAssb || "",
+    "SEX": row.sex || "",
+    "OCCUPATION": row.occupation || "",
+    "MONTHLY SALARY": row.monthlySalary || "",
+    "BARANGAY": row.barangay || "",
+    "CITY/MUNICIPALITY": row.cityMunicipality || "",
+    "PROVINCE": row.province || "",
+    "TYPE OF ASSISTANCE": row.typeOfAssistance || "",
+    "AMOUNT": row.amount || "",
+    "CHARGING": row.charging || "",
+    "STATUS": registeredSet.has(row.controlNumber)
+      ? "Registered"
+      : "Not Registered",
+  }));
+
+  // Create sheet and export
+  const ws = XLSX.utils.json_to_sheet(combinedData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Overview");
+  XLSX.writeFile(wb, `Payout_${selectedPayout}_Overview_Report.xlsx`);
+};
 
   return (
     <Box sx={{ display: "flex" }}>
