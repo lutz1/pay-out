@@ -29,20 +29,27 @@ export default function Sidebar({
   handleDrawerToggle,
   collapsed,
   handleCollapseToggle,
+  role = "admin", // default to admin
 }) {
   const navigate = useNavigate();
 
-  const menuItems = [
-    { text: "Dashboard", path: "/admin", icon: <DashboardIcon /> },
-    { text: "Manage Users", path: "/admin/users", icon: <PeopleIcon /> },
-    { text: "Manage Fields", path: "/admin/fields", icon: <BuildIcon /> }, // ✅ fixed path
-    { text: "Master List", path: "/admin/master-list", icon: <ListAltIcon /> },
-    { text: "Generate Report", path: "/admin/reports", icon: <AssessmentIcon /> },
-  ];
+  // ✅ Dynamic menu items based on role
+  const menuItems = role === "admin"
+    ? [
+        { text: "Dashboard", path: "/admin", icon: <DashboardIcon /> },
+        { text: "Manage Users", path: "/admin/users", icon: <PeopleIcon /> },
+        { text: "Manage Fields", path: "/admin/fields", icon: <BuildIcon /> },
+        { text: "Master List", path: "/admin/master-list", icon: <ListAltIcon /> },
+        { text: "Generate Report", path: "/admin/reports", icon: <AssessmentIcon /> },
+      ]
+    : [
+        { text: "Dashboard", path: "/encoder", icon: <DashboardIcon /> },
+        { text: "Master List", path: "/encoder/master-list", icon: <ListAltIcon /> },
+        { text: "Reports", path: "/encoder/reports", icon: <AssessmentIcon /> },
+      ];
 
   const drawerContent = (
     <>
-      {/* Header / Toggle Section */}
       <Toolbar
         sx={{
           display: "flex",
@@ -53,20 +60,19 @@ export default function Sidebar({
           minHeight: 64,
         }}
       >
-        {!collapsed && <Typography variant="h6">Admin Panel</Typography>}
+        {!collapsed && (
+          <Typography variant="h6">
+            {role === "admin" ? "Admin Panel" : "Encoder Panel"}
+          </Typography>
+        )}
         <IconButton
           onClick={handleCollapseToggle}
-          sx={{
-            transition: "all 0.3s",
-            ...(collapsed && { mx: "auto" }), // center horizontally
-          }}
+          sx={{ transition: "all 0.3s", ...(collapsed && { mx: "auto" }) }}
         >
           {collapsed ? <MenuIcon /> : <ChevronLeftIcon />}
         </IconButton>
       </Toolbar>
       <Divider />
-
-      {/* Menu Items */}
       <List>
         {menuItems.map((item) => (
           <ListItem key={item.text} disablePadding sx={{ display: "block" }}>
@@ -92,10 +98,7 @@ export default function Sidebar({
                 </ListItemIcon>
                 <ListItemText
                   primary={item.text}
-                  sx={{
-                    opacity: collapsed ? 0 : 1,
-                    transition: "opacity 0.3s",
-                  }}
+                  sx={{ opacity: collapsed ? 0 : 1, transition: "opacity 0.3s" }}
                 />
               </ListItemButton>
             </Tooltip>
@@ -107,7 +110,7 @@ export default function Sidebar({
 
   return (
     <>
-      {/* Permanent drawer (desktop) */}
+      {/* Permanent drawer */}
       <Drawer
         variant="permanent"
         sx={{

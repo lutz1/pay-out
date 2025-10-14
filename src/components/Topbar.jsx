@@ -16,21 +16,17 @@ import { signOut, onAuthStateChanged } from "firebase/auth";
 import { auth } from "../firebase";
 import { useNavigate } from "react-router-dom";
 
-export default function Topbar({ handleDrawerToggle, collapsed }) {
+export default function Topbar({ handleDrawerToggle, collapsed, role = "admin" }) {
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState(null);
   const [userEmail, setUserEmail] = useState(localStorage.getItem("userEmail") || "");
 
-  // ✅ Watch for auth changes (auto-redirect if logged out)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (!user) {
-        localStorage.removeItem("userEmail");
-        localStorage.removeItem("userRole");
-        // Replace history entry so back button won't go back
+        localStorage.clear();
         navigate("/login", { replace: true });
       } else {
-        // Keep email updated from localStorage (or auth)
         setUserEmail(user.email || localStorage.getItem("userEmail"));
       }
     });
@@ -43,14 +39,8 @@ export default function Topbar({ handleDrawerToggle, collapsed }) {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      localStorage.clear(); // ✅ clear all session data
+      localStorage.clear();
       navigate("/login", { replace: true });
-
-      // ✅ Prevent browser caching of the protected page
-      window.history.pushState(null, "", window.location.href);
-      window.onpopstate = () => {
-        navigate("/login", { replace: true });
-      };
     } catch (error) {
       console.error("Error signing out:", error);
     }
@@ -67,7 +57,6 @@ export default function Topbar({ handleDrawerToggle, collapsed }) {
       }}
     >
       <Toolbar>
-        {/* Hamburger for mobile */}
         <IconButton
           color="inherit"
           edge="start"
@@ -77,18 +66,16 @@ export default function Topbar({ handleDrawerToggle, collapsed }) {
           <MenuIcon />
         </IconButton>
 
-        {/* Title */}
         <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-          Admin Dashboard
+          {role === "admin" ? "Admin Dashboard" : "Encoder Dashboard"}
         </Typography>
 
-        {/* Avatar + Menu */}
         <Box sx={{ display: "flex", alignItems: "center" }}>
           <Typography variant="body2" sx={{ mr: 2 }}>
             {userEmail}
           </Typography>
           <IconButton onClick={handleMenuOpen} sx={{ p: 0 }}>
-            <Avatar>{userEmail ? userEmail[0].toUpperCase() : "A"}</Avatar>
+            <Avatar>{userEmail ? userEmail[0].toUpperCase() : "U"}</Avatar>
           </IconButton>
 
           <Menu
@@ -98,9 +85,7 @@ export default function Topbar({ handleDrawerToggle, collapsed }) {
             anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
             transformOrigin={{ vertical: "top", horizontal: "right" }}
           >
-            <Typography sx={{ px: 2, py: 1, fontWeight: 500 }}>
-              {userEmail}
-            </Typography>
+            <Typography sx={{ px: 2, py: 1, fontWeight: 500 }}>{userEmail}</Typography>
             <Divider />
             <MenuItem onClick={handleLogout}>
               <LogoutIcon fontSize="small" sx={{ mr: 1 }} />
