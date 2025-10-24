@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Box,
   Typography,
@@ -7,6 +7,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  OutlinedInput,
+  Checkbox,
+  ListItemText,
   Grid,
   Card,
   CardContent,
@@ -41,38 +44,49 @@ import {
 import * as XLSX from "xlsx";
 
 /**
- * AdminDashboard
- * - Shows full list of Excel rows (paginated + searchable)
- * - Highlights registered rows (green) same as encoder dashboard
- * - Displays encoder name and registered timestamp when available
- * - Exports combined report with STATUS, ENCODER NAME, REGISTERED AT
+ * AdminDashboard.jsx
+ * - Original logic kept intact: payouts fetch, excel parsing, registered fetch,
+ *   registeredWithDetails, totals, serverTime, dialog, etc.
+ * - Added: multi-select filters (BARANGAY, Encoder, Status) in same row as export buttons
+ * - Export filtered rows to Excel with filename that reflects chosen filters:
+ *     Payout_<PayoutTitle>_<Filters>_Report.xlsx
+ * - Image export (PNG/JPG) is supported via dynamic import of html2canvas on-demand.
+ *   If html2canvas is not installed, user sees an alert with install instructions.
  */
 
 export default function AdminDashboard() {
+  // UI & layout state
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(
     JSON.parse(localStorage.getItem("sidebarCollapsed") || "false")
   );
 
+  // Core data state (kept from your previous file)
   const [payouts, setPayouts] = useState([]);
   const [selectedPayout, setSelectedPayout] = useState("");
-  const [excelData, setExcelData] = useState([]); // each row contains rowId + original columns
-  // eslint-disable-next-line no-unused-vars
-  const [excelHeaders, setExcelHeaders] = useState([]); // cleaned headers
-  const [registeredData, setRegisteredData] = useState([]); // raw registration docs
-  const [registrationsMap, setRegistrationsMap] = useState({}); // keyed by payoutId_rowId
-  const [normalizedControlMap, setNormalizedControlMap] = useState({}); // keyed by control -> reg info
+  const [excelData, setExcelData] = useState([]); // parsed excel rows
+  const [excelHeaders, setExcelHeaders] = useState([]); // header array
+  const [registeredData, setRegisteredData] = useState([]); // encoderRegistrations docs
+  const [registrationsMap, setRegistrationsMap] = useState({}); // payout_rowId -> reg
+  const [normalizedControlMap, setNormalizedControlMap] = useState({}); // controlNormalized -> [regs]
   const [encoderNames, setEncoderNames] = useState({}); // uid -> username
   const [loading, setLoading] = useState(false);
   const [serverTime, setServerTime] = useState("");
 
-  // UI state (search/pagination/dialog)
+  // table / UI extras
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(0);
-  const ROWS_PER_PAGE = 10;
+  const [page, setPage] = useState(1);
+  const ROWS_PER_PAGE = 25;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogRow, setDialogRow] = useState(null);
+  const tableRef = useRef(null);
 
+  // Multi-select filters (new)
+  const [selectedBarangays, setSelectedBarangays] = useState([]);
+  const [selectedEncoders, setSelectedEncoders] = useState([]);
+  const [selectedStatuses, setSelectedStatuses] = useState([]);
+
+  // helpers
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
   const handleCollapseToggle = () => {
     const newCollapsed = !collapsed;
@@ -80,7 +94,7 @@ export default function AdminDashboard() {
     localStorage.setItem("sidebarCollapsed", JSON.stringify(newCollapsed));
   };
 
-  // --- Fetch ongoing payouts ---
+  // --- Fetch ongoing payouts (unchanged) ---
   useEffect(() => {
     const fetchPayouts = async () => {
       try {
@@ -88,8 +102,8 @@ export default function AdminDashboard() {
           collection(db, "payoutschedules"),
           where("status", "==", "PAY-OUT ONGOING")
         );
-        const snap = await getDocs(q);
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const snapshot = await getDocs(q);
+        const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
         setPayouts(list);
       } catch (err) {
         console.error("Error fetching payouts:", err);
@@ -98,12 +112,12 @@ export default function AdminDashboard() {
     fetchPayouts();
   }, []);
 
-  // --- Fetch Excel file for selected payout ---
+  // --- Fetch Excel data and headers (preserve original parsing) ---
   useEffect(() => {
     if (!selectedPayout) {
       setExcelData([]);
       setExcelHeaders([]);
-      setPage(0);
+      setPage(1);
       return;
     }
 
@@ -114,35 +128,35 @@ export default function AdminDashboard() {
         if (!payout?.fileUrl) {
           setExcelData([]);
           setExcelHeaders([]);
+          setLoading(false);
           return;
         }
 
         const res = await fetch(payout.fileUrl);
         const arrayBuffer = await res.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: "array" });
-        const firstSheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[firstSheetName];
+        const firstSheet = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[firstSheet];
 
-        // get headers (row 0)
-        const headerRow = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] || [];
-        // clean header: remove empty and dedupe while preserving order
+        // Get headers row (row 0)
+        const headersRow = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] || [];
+        // Clean headers: preserve order, remove empty, dedupe case-insensitive
         const seen = new Set();
-        const cleanHeaders = headerRow
+        const cleanHeaders = headersRow
           .map((h) => (h === undefined || h === null ? "" : String(h).trim()))
           .filter((h) => h !== "")
           .filter((h) => {
-            const key = h.toLowerCase();
-            if (seen.has(key)) return false;
-            seen.add(key);
+            const k = h.toLowerCase();
+            if (seen.has(k)) return false;
+            seen.add(k);
             return true;
           });
 
-        // parse sheet to json (defval to keep empty strings)
+        // Parse sheet to JSON with defval so empty cells become ""
         const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-        // attach rowId and normalized control number for reliable matching
+        // Attach rowId, __index, and normalized CONTROL NUMBER for robust matching
         const rowsWithIds = jsonData.map((row, idx) => {
-          // try to find control number fields by common header variants
           const controlRaw =
             row["CONTROL NUMBER"] ??
             row["Control Number"] ??
@@ -152,19 +166,23 @@ export default function AdminDashboard() {
             "";
           const controlNormalized = String(controlRaw).toUpperCase().trim();
 
+          // Ensure BARANGAY exists as uppercase key expected by your filters/exports
+          const barangay = (row["BARANGAY"] ?? row["Barangay"] ?? "").toString().trim();
+
           return {
-            rowId: idx, // 0-based to match encoderDashboard's rowId
-            __index: idx + 1, // human-friendly No.
+            rowId: idx,
+            __index: idx + 1,
             ...row,
+            BARANGAY: barangay,
             CONTROL_NUMBER_NORMALIZED: controlNormalized,
           };
         });
 
         setExcelHeaders(cleanHeaders);
         setExcelData(rowsWithIds);
-        setPage(0);
+        setPage(1);
       } catch (err) {
-        console.error("Error reading excel:", err);
+        console.error("Error loading Excel file:", err);
         setExcelData([]);
         setExcelHeaders([]);
       } finally {
@@ -173,9 +191,10 @@ export default function AdminDashboard() {
     };
 
     fetchExcel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPayout, payouts]);
 
-  // --- Fetch registered docs for selected payout ---
+  // --- Fetch registered data and encoder names (preserve original) ---
   useEffect(() => {
     if (!selectedPayout) {
       setRegisteredData([]);
@@ -195,25 +214,21 @@ export default function AdminDashboard() {
         const snap = await getDocs(q);
         const regs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-        // Build map keyed by payoutId_rowId (same key encoder uses)
         const regMap = {};
-        const controlMap = {}; // controlNormalized -> array of registrations (in case duplicates)
+        const controlMap = {};
         const encoderIds = new Set();
 
         regs.forEach((r) => {
           const key = `${r.payoutId}_${r.rowId}`;
           regMap[key] = r;
-
           const controlNorm = String(r.controlNumber ?? "").toUpperCase().trim();
           if (controlNorm) {
             if (!controlMap[controlNorm]) controlMap[controlNorm] = [];
             controlMap[controlNorm].push(r);
           }
-
           if (r.userId) encoderIds.add(r.userId);
         });
 
-        // fetch encoder usernames in parallel
         const names = {};
         await Promise.all(
           Array.from(encoderIds).map(async (uid) => {
@@ -234,7 +249,7 @@ export default function AdminDashboard() {
         setNormalizedControlMap(controlMap);
         setEncoderNames(names);
       } catch (err) {
-        console.error("Error fetching registrations:", err);
+        console.error("Error fetching registered:", err);
         setRegisteredData([]);
         setRegistrationsMap({});
         setNormalizedControlMap({});
@@ -247,43 +262,20 @@ export default function AdminDashboard() {
     fetchRegs();
   }, [selectedPayout]);
 
-  // --- Server time tick ---
+  // --- Server time (preserve) ---
   useEffect(() => {
     const id = setInterval(() => setServerTime(new Date().toLocaleString()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  // --- Filtering & pagination (admins see ALL excel rows, with status highlight) ---
-  const filteredData = excelData.filter((row) =>
-    Object.values(row)
-      .join(" ")
-      .toLowerCase()
-      .includes(search.toLowerCase())
-  );
-
-  const totalPages = Math.max(1, Math.ceil(filteredData.length / ROWS_PER_PAGE));
-  const paginatedData = filteredData.slice(
-    page * ROWS_PER_PAGE,
-    page * ROWS_PER_PAGE + ROWS_PER_PAGE
-  );
-
-  // Determine table columns (keys from first excel row), exclude our helper fields in display
-  const tableColumns =
-    excelData.length > 0
-      ? Object.keys(excelData[0]).filter((k) => k !== "rowId" && k !== "__index" && k !== "CONTROL_NUMBER_NORMALIZED")
-      : [];
-
-  // --- Helpers for row status & encoder info ---
+  // --- Helpers to get registration info for a row (preserve) ---
   const getRegistrationForRow = (row) => {
-    // check by payout_rowId map first
     const key = `${selectedPayout}_${row.rowId}`;
     const regByKey = registrationsMap[key];
     if (regByKey) return regByKey;
 
-    // fallback: check by CONTROL_NUMBER_NORMALIZED match
     const control = String(row.CONTROL_NUMBER_NORMALIZED ?? "").toUpperCase().trim();
     if (control && normalizedControlMap[control] && normalizedControlMap[control].length > 0) {
-      // return first match (if many encoders registered same control)
       return normalizedControlMap[control][0];
     }
     return null;
@@ -306,64 +298,154 @@ export default function AdminDashboard() {
     if (reg.timestamp && reg.timestamp.seconds) {
       return new Date(reg.timestamp.seconds * 1000).toLocaleString();
     }
-    // if timestamp stored differently or as ISO string:
     if (reg.timestamp && typeof reg.timestamp === "string") return reg.timestamp;
     return "";
   };
 
-  // --- Export combined Excel (all rows) ---
-  const handleExportExcel = () => {
-    if (excelData.length === 0) return;
+  // --- Build merged rows (like your earlier mergedData / registeredWithDetails) ---
+  // We preserve original fields and append STATUS, ENCODER NAME, REGISTERED AT
+// eslint-disable-next-line react-hooks/exhaustive-deps
+const mergedRows = useMemo(() => {
+  return excelData.map((row, idx) => {
+    const reg = getRegistrationForRow(row);
+    return {
+      no: row.__index ?? idx + 1,
+      ...row,
+      STATUS: reg && reg.registered ? "Registered" : "Not Registered",
+      "ENCODER NAME": reg ? encoderNames[reg.userId] || "" : "",
+      "REGISTERED AT": reg
+        ? reg.timestamp && reg.timestamp.seconds
+          ? new Date(reg.timestamp.seconds * 1000).toLocaleString()
+          : reg.timestamp || ""
+        : "",
+    };
+  });
+}, [excelData, registrationsMap, normalizedControlMap, encoderNames, registeredData]);
 
-    // Build set of normalized registered control numbers and payout_rowId keys
-    const registeredControlSet = new Set(
-      registeredData
-        .map((r) => String(r.controlNumber ?? "").toUpperCase().trim())
-        .filter(Boolean)
-    );
+  // --- Dynamic filter option lists ---
+  const barangayOptions = useMemo(() => {
+    return Array.from(new Set(excelData.map((r) => (r.BARANGAY ?? "").toString().trim()).filter(Boolean)));
+  }, [excelData]);
 
-    const registeredRowKeySet = new Set(
-      registeredData
-        .map((r) => `${r.payoutId}_${r.rowId}`)
-        .filter(Boolean)
-    );
+  const encoderOptions = useMemo(() => {
+    return Array.from(new Set(Object.values(encoderNames).filter(Boolean)));
+  }, [encoderNames]);
 
-    // Build export rows preserving original excel headers order + appended fields
-    const exportRows = excelData.map((row, idx) => {
-      // base row object: map original headers to values (keep empty strings)
+  // --- Filtering logic (applies search + multi-filters) ---
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    return mergedRows.filter((row) => {
+      // BARANGAY filter
+      const barangayMatch = selectedBarangays.length === 0 || selectedBarangays.includes((row.BARANGAY ?? "").toString());
+
+      // Encoder filter
+      const encoderMatch = selectedEncoders.length === 0 || selectedEncoders.includes((row["ENCODER NAME"] ?? "").toString());
+
+      // Status filter
+      const statusMatch = selectedStatuses.length === 0 || selectedStatuses.includes((row.STATUS ?? "").toString());
+
+      // Search match across values (control number, names, etc.)
+      const searchMatch =
+        q === "" ||
+        Object.values(row)
+          .join(" ")
+          .toLowerCase()
+          .includes(q);
+
+      return barangayMatch && encoderMatch && statusMatch && searchMatch;
+    });
+  }, [mergedRows, selectedBarangays, selectedEncoders, selectedStatuses, search]);
+
+  // --- Pagination for filtered rows ---
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / ROWS_PER_PAGE));
+  useEffect(() => {
+    // Ensure page is within bounds when filter changes
+    if (page > totalPages) setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalPages]);
+
+  const paginatedRows = useMemo(() => {
+    const start = (page - 1) * ROWS_PER_PAGE;
+    return filteredRows.slice(start, start + ROWS_PER_PAGE);
+  }, [filteredRows, page]);
+
+  // --- Totals (preserve) ---
+  const totalRegistered = mergedRows.filter((r) => r.STATUS === "Registered").length;
+  const totalNotRegistered = Math.max(0, mergedRows.length - totalRegistered);
+
+  // --- Export filtered rows to Excel with filename that reflects filters ---
+  const sanitizeForFilename = (s) =>
+    String(s)
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9_-]/g, "");
+
+  const buildFilterSuffix = () => {
+    const parts = [];
+    if (selectedBarangays.length > 0) parts.push(`Barangay-${selectedBarangays.map(sanitizeForFilename).join("-")}`);
+    if (selectedEncoders.length > 0) parts.push(`Encoder-${selectedEncoders.map(sanitizeForFilename).join("-")}`);
+    if (selectedStatuses.length > 0) parts.push(`Status-${selectedStatuses.map(sanitizeForFilename).join("-")}`);
+    if (parts.length === 0) return "All";
+    return parts.join("_");
+  };
+
+  const handleExportFilteredExcel = () => {
+    if (!selectedPayout) return;
+    const rowsToExport = filteredRows.map((row) => {
+      // Preserve original excel columns (excelHeaders) then append extras
       const base = {};
-      tableColumns.forEach((col) => {
-        base[col] = row[col] ?? "";
+      excelHeaders.forEach((h) => {
+        base[h] = row[h] ?? "";
       });
 
-      const controlNorm = String(row.CONTROL_NUMBER_NORMALIZED ?? "").toUpperCase().trim();
-      const rowKey = `${selectedPayout}_${row.rowId}`;
-
-      const status =
-        registeredRowKeySet.has(rowKey) || (controlNorm && registeredControlSet.has(controlNorm))
-          ? "Registered"
-          : "Not Registered";
-
-      const encoderName = getEncoderNameForRow(row);
-      const registeredAt = getRegisteredAtForRow(row);
-
       return {
-        "No.": row.__index ?? idx + 1,
+        "No.": row.no,
         ...base,
-        STATUS: status,
-        "ENCODER NAME": encoderName,
-        "REGISTERED AT": registeredAt,
+        BARANGAY: row.BARANGAY ?? "",
+        STATUS: row.STATUS ?? "",
+        "ENCODER NAME": row["ENCODER NAME"] ?? "",
+        "REGISTERED AT": row["REGISTERED AT"] ?? "",
       };
     });
 
-    // Convert to worksheet and download
-    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const ws = XLSX.utils.json_to_sheet(rowsToExport);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Overview");
-    XLSX.writeFile(wb, `Payout_${selectedPayout}_Overview_Report.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Filtered");
+    const payoutTitle = (payouts.find((p) => p.id === selectedPayout)?.title ?? selectedPayout).toString();
+    const fileName = `Payout_${sanitizeForFilename(payoutTitle)}_${buildFilterSuffix()}_Report.xlsx`;
+    XLSX.writeFile(wb, fileName);
   };
 
-  // --- Dialog open for viewing details ---
+  // --- Image export using dynamic import of html2canvas (no compile-time dependency) ---
+  const handleExportImage = async (format = "png") => {
+    if (!selectedPayout) return;
+    if (typeof window === "undefined") {
+      alert("Image export only works in browser.");
+      return;
+    }
+    try {
+      // Try dynamic import
+      const { default: html2canvas } = await import("html2canvas");
+      const el = tableRef.current ?? document.querySelector("#admin-table");
+      if (!el) {
+        alert("Table element not found for image export.");
+        return;
+      }
+      const canvas = await html2canvas(el, { scale: 2 });
+      const mime = format === "jpeg" || format === "jpg" ? "image/jpeg" : "image/png";
+      const dataUrl = canvas.toDataURL(mime);
+      const link = document.createElement("a");
+      const payoutTitle = (payouts.find((p) => p.id === selectedPayout)?.title ?? selectedPayout).toString();
+      link.download = `Payout_${sanitizeForFilename(payoutTitle)}_${buildFilterSuffix()}_Report.${format === "jpeg" || format === "jpg" ? "jpg" : "png"}`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error("html2canvas import/usage failed:", err);
+      alert("Image export requires 'html2canvas'. Install it with:\n\nnpm install html2canvas\n\nor\n\nyarn add html2canvas\n\nThen retry the export.");
+    }
+  };
+
+  // --- Row click for dialog ---
   const onRowClick = (row) => {
     setDialogRow(row);
     setDialogOpen(true);
@@ -393,19 +475,24 @@ export default function AdminDashboard() {
         <Typography variant="h4" gutterBottom fontWeight={600}>
           Admin Dashboard
         </Typography>
-        <Typography variant="body2" color="text.secondary" mb={3}>
+
+        <Typography variant="body2" color="text.secondary" mb={2}>
           🕒 Server Time: {serverTime}
         </Typography>
 
-        {/* Select Payout */}
+        {/* --- Select Payout (unchanged) --- */}
         <FormControl size="small" sx={{ minWidth: 300, mb: 3 }}>
           <InputLabel>Select Payout</InputLabel>
           <Select
             value={selectedPayout}
             onChange={(e) => {
               setSelectedPayout(e.target.value);
+              // Reset filters & pagination when changing payout
+              setSelectedBarangays([]);
+              setSelectedEncoders([]);
+              setSelectedStatuses([]);
               setSearch("");
-              setPage(0);
+              setPage(1);
             }}
             label="Select Payout"
           >
@@ -418,7 +505,7 @@ export default function AdminDashboard() {
           </Select>
         </FormControl>
 
-        {/* Summary */}
+        {/* --- Summary Cards (unchanged) --- */}
         <Grid container spacing={2} mb={3}>
           <Grid item xs={12} sm={6} md={3}>
             <Card sx={{ borderLeft: "5px solid green" }}>
@@ -427,7 +514,7 @@ export default function AdminDashboard() {
                   Total Registered
                 </Typography>
                 <Typography variant="h6" sx={{ color: "green", fontWeight: 700 }}>
-                  {registeredData.filter((r) => r.registered).length}
+                  {totalRegistered}
                 </Typography>
               </CardContent>
             </Card>
@@ -440,7 +527,7 @@ export default function AdminDashboard() {
                   Total Not Registered
                 </Typography>
                 <Typography variant="h6" sx={{ color: "red", fontWeight: 700 }}>
-                  {Math.max(0, excelData.length - registeredData.filter((r) => r.registered).length)}
+                  {totalNotRegistered}
                 </Typography>
               </CardContent>
             </Card>
@@ -453,12 +540,89 @@ export default function AdminDashboard() {
           <Typography>Select a payout to display records.</Typography>
         ) : (
           <>
-            <Button variant="contained" onClick={handleExportExcel} sx={{ mb: 2 }}>
-              EXPORT EXCEL REPORT
-            </Button>
+            {/* --- Export + Filters on same row --- */}
+            <Stack direction="row" spacing={2} alignItems="center" mb={2} flexWrap="wrap">
+              <Button variant="contained" onClick={handleExportFilteredExcel}>
+                EXPORT EXCEL REPORT
+              </Button>
 
-            {/* Search bar */}
-            <Box sx={{ mb: 1 }}>
+              {/* PNG / JPG export (optional dynamic import) */}
+              <Button variant="outlined" onClick={() => handleExportImage("png")}>
+                EXPORT PNG
+              </Button>
+              <Button variant="outlined" onClick={() => handleExportImage("jpeg")}>
+                EXPORT JPG
+              </Button>
+
+              {/* BARANGAY multi-select */}
+              <FormControl size="small" sx={{ minWidth: 220 }}>
+                <InputLabel>BARANGAY</InputLabel>
+                <Select
+                  multiple
+                  value={selectedBarangays}
+                  onChange={(e) => {
+                    setSelectedBarangays(e.target.value);
+                    setPage(1);
+                  }}
+                  input={<OutlinedInput label="BARANGAY" />}
+                  renderValue={(selected) => (selected.length ? selected.join(", ") : "All")}
+                >
+                  {barangayOptions.map((b) => (
+                    <MenuItem key={b} value={b}>
+                      <Checkbox checked={selectedBarangays.indexOf(b) > -1} />
+                      <ListItemText primary={b} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Encoder multi-select */}
+              <FormControl size="small" sx={{ minWidth: 220 }}>
+                <InputLabel>Encoder</InputLabel>
+                <Select
+                  multiple
+                  value={selectedEncoders}
+                  onChange={(e) => {
+                    setSelectedEncoders(e.target.value);
+                    setPage(1);
+                  }}
+                  input={<OutlinedInput label="Encoder" />}
+                  renderValue={(selected) => (selected.length ? selected.join(", ") : "All")}
+                >
+                  {encoderOptions.map((enc) => (
+                    <MenuItem key={enc} value={enc}>
+                      <Checkbox checked={selectedEncoders.indexOf(enc) > -1} />
+                      <ListItemText primary={enc} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Status multi-select */}
+              <FormControl size="small" sx={{ minWidth: 180 }}>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  multiple
+                  value={selectedStatuses}
+                  onChange={(e) => {
+                    setSelectedStatuses(e.target.value);
+                    setPage(1);
+                  }}
+                  input={<OutlinedInput label="Status" />}
+                  renderValue={(selected) => (selected.length ? selected.join(", ") : "All")}
+                >
+                  {["Registered", "Not Registered"].map((s) => (
+                    <MenuItem key={s} value={s}>
+                      <Checkbox checked={selectedStatuses.indexOf(s) > -1} />
+                      <ListItemText primary={s} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+
+            {/* Search */}
+            <Box sx={{ mb: 2 }}>
               <TextField
                 fullWidth
                 size="small"
@@ -466,95 +630,93 @@ export default function AdminDashboard() {
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
-                  setPage(0);
+                  setPage(1);
                 }}
               />
             </Box>
 
-            {/* Table */}
+            {/* Table (preserve structure; use excelHeaders for columns) */}
             <Paper sx={{ borderRadius: 2, overflow: "hidden" }}>
               <TableContainer sx={{ maxHeight: "70vh" }}>
-                <Table stickyHeader size="small">
+                <Table id="admin-table" ref={tableRef} stickyHeader size="small">
                   <TableHead>
                     <TableRow>
                       <TableCell sx={{ fontWeight: "bold" }}>No.</TableCell>
-                      {tableColumns.map((col) => (
-                        <TableCell key={col} sx={{ fontWeight: "bold", whiteSpace: "nowrap" }}>
-                          {col}
+                      {excelHeaders.map((header) => (
+                        <TableCell key={header} sx={{ fontWeight: "bold" }}>
+                          {header}
                         </TableCell>
                       ))}
-                      <TableCell sx={{ fontWeight: "bold" }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }}>Encoder Name</TableCell>
-                      <TableCell sx={{ fontWeight: "bold" }}>Registered At</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>BARANGAY</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>STATUS</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>ENCODER NAME</TableCell>
+                      <TableCell sx={{ fontWeight: "bold" }}>REGISTERED AT</TableCell>
                     </TableRow>
                   </TableHead>
-
                   <TableBody>
-                    {filteredData.length === 0 ? (
+                    {paginatedRows.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={tableColumns.length + 4} align="center">
+                        <TableCell colSpan={excelHeaders.length + 5} align="center">
                           No records found.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      paginatedData.map((row) => {
-                        const registered = isRowRegistered(row);
-                        const encoderName = getEncoderNameForRow(row);
-                        const registeredAt = getRegisteredAtForRow(row);
-                        return (
-                          <TableRow
-                            key={row.rowId}
-                            hover
-                            onClick={() => onRowClick(row)}
-                            sx={{
-                              backgroundColor: registered ? "#4af108" : "inherit",
-                              cursor: "pointer",
-                              "&:hover": {
-                                backgroundColor: registered ? "#4af108" : "#f3f3f3",
-                              },
-                            }}
-                          >
-                            <TableCell>{row.__index ?? row.rowId + 1}</TableCell>
-                            {tableColumns.map((col) => (
-                              <TableCell key={col} sx={{ whiteSpace: "nowrap" }}>
-                                {String(row[col] ?? "")}
-                              </TableCell>
-                            ))}
-                            <TableCell>
-                              {registered ? <Chip label="REGISTERED" size="small" color="success" /> : <Chip label="NOT REGISTERED" size="small" />}
-                            </TableCell>
-                            <TableCell>{encoderName}</TableCell>
-                            <TableCell>{registeredAt}</TableCell>
-                          </TableRow>
-                        );
-                      })
+                      paginatedRows.map((row) => (
+                        <TableRow
+                          key={row.rowId}
+                          hover
+                          onClick={() => onRowClick(row)}
+                          sx={{
+                            backgroundColor: row.STATUS === "Registered" ? "#e6fff0" : "inherit",
+                            cursor: "pointer",
+                            "&:hover": {
+                              backgroundColor: row.STATUS === "Registered" ? "#e6fff0" : "#f7f7f7",
+                            },
+                          }}
+                        >
+                          <TableCell>{row.no}</TableCell>
+                          {excelHeaders.map((h) => (
+                            <TableCell key={h}>{row[h] ?? ""}</TableCell>
+                          ))}
+                          <TableCell>{row.BARANGAY ?? ""}</TableCell>
+                          <TableCell>
+                            {row.STATUS === "Registered" ? (
+                              <Chip label="REGISTERED" size="small" color="success" />
+                            ) : (
+                              <Chip label="NOT REGISTERED" size="small" />
+                            )}
+                          </TableCell>
+                          <TableCell>{row["ENCODER NAME"] ?? ""}</TableCell>
+                          <TableCell>{row["REGISTERED AT"] ?? ""}</TableCell>
+                        </TableRow>
+                      ))
                     )}
                   </TableBody>
                 </Table>
               </TableContainer>
             </Paper>
 
-            {/* Pagination controls */}
+            {/* Pagination */}
             <Stack direction="row" spacing={2} justifyContent="center" alignItems="center" mt={2}>
-              <Button variant="contained" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+              <Button variant="contained" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
                 Previous
               </Button>
               <Typography>
-                Page {page + 1} of {totalPages}
+                Page {page} of {totalPages}
               </Typography>
-              <Button variant="contained" disabled={page + 1 >= totalPages} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>
+              <Button variant="contained" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
                 Next
               </Button>
             </Stack>
           </>
         )}
 
-        {/* View dialog */}
+        {/* Dialog (preserve) */}
         <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)}>
           <DialogTitle>{dialogRow ? `Row #${dialogRow.rowId}` : "Row"}</DialogTitle>
           <DialogContent dividers sx={{ minWidth: { xs: 260, sm: 420 } }}>
             {dialogRow &&
-              tableColumns.map((col) => (
+              excelHeaders.map((col) => (
                 <Box key={col} sx={{ display: "flex", gap: 1, mb: 1 }}>
                   <Typography variant="caption" sx={{ minWidth: 140, color: "text.secondary" }}>
                     {col}
@@ -564,15 +726,14 @@ export default function AdminDashboard() {
                   </Typography>
                 </Box>
               ))}
+
             {dialogRow && (
               <>
                 <Box sx={{ mt: 1 }}>
                   <Typography variant="caption" sx={{ color: "text.secondary" }}>
                     Status
                   </Typography>
-                  <Typography variant="body2">
-                    {isRowRegistered(dialogRow) ? "Registered" : "Not Registered"}
-                  </Typography>
+                  <Typography variant="body2">{isRowRegistered(dialogRow) ? "Registered" : "Not Registered"}</Typography>
                 </Box>
 
                 <Box sx={{ mt: 1 }}>
