@@ -51,7 +51,7 @@ export default function EncoderDashboard() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogRow, setDialogRow] = useState(null);
-  const [resetConfirmOpen, setResetConfirmOpen] = useState(false); // NEW CONFIRM DIALOG
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
   const handleCollapseToggle = () => setCollapsed(!collapsed);
@@ -361,52 +361,56 @@ export default function EncoderDashboard() {
                         </TableHead>
 
                         <TableBody>
-                          {paginatedData.map((row) => {
-                            const regKey = selectedPayout + "_" + row.rowId;
-                            const isRegistered =
-                              registrations[regKey]?.registered;
-                            return (
-                              <TableRow
-                                key={row.rowId}
-                                onClick={() => onRowClick(row)}
-                                sx={{
-                                  backgroundColor: isRegistered
-                                    ? "#4af108"
-                                    : "inherit",
-                                  cursor: "pointer",
-                                  "&:hover": {
-                                    backgroundColor: isRegistered
-                                      ? "#4af108"
-                                      : "inherit", // hover disabled
-                                  },
-                                }}
-                              >
-                                {tableColumns.map((col) => (
-                                  <TableCell
-                                    key={col}
-                                    sx={{ whiteSpace: "nowrap" }}
-                                  >
-                                    {row[col]}
-                                  </TableCell>
-                                ))}
-                                <TableCell>
-                                  {isRegistered ? (
-                                    <Chip
-                                      label="REGISTERED"
-                                      size="small"
-                                      color="success"
-                                    />
-                                  ) : (
-                                    <Chip
-                                      label="NOT REGISTERED"
-                                      size="small"
-                                    />
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
+  {paginatedData.map((row) => {
+    const regKey = selectedPayout + "_" + row.rowId;
+    const isRegistered = registrations[regKey]?.registered;
+
+    // ✅ Determine background color based on content
+    const rowText = Object.values(row).join(" ").toLowerCase();
+
+    let bgColor = "inherit";
+    let isDisabled = false;
+
+    if (rowText.includes("totally damaged")) {
+      bgColor = "#90caf9"; // Blue
+    } else if (rowText.includes("disqualified")) {
+      bgColor = "#fff59d"; // Yellow
+      isDisabled = true; // disable clicking
+    } else if (isRegistered) {
+      bgColor = "#4af108"; // Green
+    }
+
+    return (
+      <TableRow
+        key={row.rowId}
+        onClick={() => {
+          if (!isDisabled) onRowClick(row);
+        }}
+        sx={{
+          backgroundColor: bgColor,
+          cursor: isDisabled ? "not-allowed" : "pointer",
+          opacity: isDisabled ? 0.7 : 1,
+          "&:hover": {
+            backgroundColor: bgColor, // no hover color change
+          },
+        }}
+      >
+        {tableColumns.map((col) => (
+          <TableCell key={col} sx={{ whiteSpace: "nowrap" }}>
+            {row[col]}
+          </TableCell>
+        ))}
+        <TableCell>
+          {isRegistered ? (
+            <Chip label="REGISTERED" size="small" color="success" />
+          ) : (
+            <Chip label="NOT REGISTERED" size="small" />
+          )}
+        </TableCell>
+      </TableRow>
+    );
+  })}
+</TableBody>
                       </Table>
                     </TableContainer>
                   </Paper>
@@ -523,9 +527,7 @@ export default function EncoderDashboard() {
         >
           <DialogTitle>Confirm Reset</DialogTitle>
           <DialogContent>
-            <Typography>
-              Are you sure you want to reset this record?
-            </Typography>
+            <Typography>Are you sure you want to reset this record?</Typography>
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setResetConfirmOpen(false)}>Cancel</Button>
